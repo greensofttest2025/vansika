@@ -5,7 +5,7 @@
 import streamlit as st
 import tensorflow as tf
 import numpy as np
-import cv2
+
 import os
 from PIL import Image
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
