@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+.ipynb_checkpoints/
+*.ipynb
+
+# Datasets & raw images (DO NOT UPLOAD)
+dataset/
+mcc_raw/
+non_mcc_raw/
+HAM10000_images_part_1/
+HAM10000_images_part_2/
+metadata/
+
+# Large files
+*.zip
+*.csv
+
+# Images & outputs
+*.png
+
+# Logs
+*.log
+training_log.csv
