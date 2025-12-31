@@ -1,118 +1,114 @@
-# ================================
-# Streamlit MCC Detection App
-# ================================
+# ===============================
+# Streamlit App – MCC Detection
+# ===============================
 
 import os
-
-# --- MUST be before tensorflow import ---
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 import streamlit as st
 import tensorflow as tf
 import numpy as np
-import cv2
 from PIL import Image
-from keras.layers import TFSMLayer
 
-# ================================
-# App Config
-# ================================
+# -------------------------------
+# CONFIG
+# -------------------------------
+IMG_SIZE = 224
+THRESHOLD = 0.35   # MCC-safe ROC threshold
 
+# From training: {'mcc': 0, 'non_mcc': 1}
+IDX_TO_CLASS = {
+    0: "MCC",
+    1: "Non-MCC"
+}
+
+# -------------------------------
+# PAGE SETTINGS
+# -------------------------------
 st.set_page_config(
-    page_title="MCC Detection",
+    page_title="MCC Risk Assessment",
+    page_icon="🩺",
     layout="centered"
 )
 
-st.title("🩺 MCC Skin Cancer Detection")
-st.write("Upload a skin lesion image to classify **MCC / Non-MCC**")
+st.title("🩺 MCC Risk Assessment")
+st.markdown("""
+⚠️ **Academic Research Prototype**  
+This tool is **NOT a medical device**.  
+Always consult a dermatologist.
+""")
 
-# ================================
-# Constants
-# ================================
-
-MODEL_PATH = "mcc_model_savedmodel"
-IMG_SIZE = 224
-THRESHOLD = 0.5
-
-IDX_TO_CLASS = {
-    0: "Non-MCC",
-    1: "MCC"
-}
-
-# ================================
-# Load Model (Keras 3 Compatible)
-# ================================
-
+# -------------------------------
+# LOAD MODEL (KERAS 3 SAFE)
+# -------------------------------
 @st.cache_resource
 def load_model():
-    if not os.path.exists(MODEL_PATH):
+    model_dir = "mcc_model_savedmodel"
+
+    if not os.path.exists(model_dir):
         st.error("❌ Model folder not found.")
         return None
 
-    try:
-        model = TFSMLayer(
-            MODEL_PATH,
-            call_endpoint="serving_default"
-        )
-        return model
-    except Exception as e:
-        st.error(f"❌ Model load failed: {e}")
-        return None
-
+    # Load SavedModel as inference-only layer
+    return tf.keras.layers.TFSMLayer(
+        model_dir,
+        call_endpoint="serving_default"
+    )
 
 model = load_model()
 if model is None:
     st.stop()
 
-# ================================
-# Image Preprocessing
-# ================================
-
-def preprocess_image(image: Image.Image):
-    image = image.convert("RGB")
-    image = np.array(image)
-    image = cv2.resize(image, (IMG_SIZE, IMG_SIZE))
-    image = image / 255.0
-    image = np.expand_dims(image, axis=0).astype(np.float32)
-    return image
-
-# ================================
-# UI
-# ================================
-
+# -------------------------------
+# IMAGE UPLOAD
+# -------------------------------
 uploaded_file = st.file_uploader(
-    "Upload an image",
+    "Upload a skin lesion image",
     type=["jpg", "jpeg", "png"]
 )
 
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="Uploaded Image", use_container_width=True)
+if uploaded_file:
 
-    img_array = preprocess_image(image)
+    image = Image.open(uploaded_file).convert("RGB")
+    st.image(image, caption="Uploaded Image", use_column_width=True)
 
-    # ================================
-    # Prediction
-    # ================================
-    with st.spinner("🔬 Analyzing image..."):
-        outputs = model(img_array, training=False)
+    # Preprocess
+    img = image.resize((IMG_SIZE, IMG_SIZE))
+    img_array = np.array(img) / 255.0
+    img_array = np.expand_dims(img_array, axis=0).astype(np.float32)
 
-        # TFSMLayer returns dict → extract tensor
-        prob = float(list(outputs.values())[0].numpy()[0][0])
+    # Predict
+    with st.spinner("Analyzing image..."):
+        output = model(img_array)
 
-    predicted_index = 1 if prob >= THRESHOLD else 0
-    predicted_class = IDX_TO_CLASS[predicted_index]
+        # TFSMLayer returns a dict → extract tensor
+        prob_non_mcc = float(list(output.values())[0][0][0])
 
-    # ================================
-    # Results
-    # ================================
-    st.markdown("---")
-    st.subheader("🧪 Prediction Result")
+    # -------------------------------
+    # CORRECT CLASS LOGIC (FIXED)
+    # -------------------------------
+    prob_mcc = 1.0 - prob_non_mcc
 
-    if predicted_class == "MCC":
-        st.error(f"⚠️ **MCC Detected**\n\nConfidence: **{prob*100:.2f}%**")
+    if prob_mcc >= THRESHOLD:
+        st.error("🚨 **MCC (Suspicious for Cancer)**")
+        st.metric("Confidence", f"{prob_mcc * 100:.2f}%")
+        st.warning("HIGH RISK – Consult dermatologist immediately")
     else:
-        st.success(f"✅ **Non-MCC**\n\nConfidence: **{(1-prob)*100:.2f}%**")
+        st.success("✅ **Non-MCC (Likely Benign)**")
+        st.metric("Confidence", f"{prob_non_mcc * 100:.2f}%")
+        st.info("LOW RISK – Routine monitoring suggested")
 
+    # -------------------------------
+    # TECH DETAILS
+    # -------------------------------
+    with st.expander("🔍 Technical Details"):
+        st.write(f"Sigmoid output (P Non-MCC): {prob_non_mcc:.4f}")
+        st.write(f"MCC probability: {prob_mcc:.4f}")
+        st.write(f"Decision threshold: {THRESHOLD}")
 
+# -------------------------------
+# FOOTER
+# -------------------------------
+st.markdown("---")
+st.caption("Academic research prototype · Not approved for clinical use")
