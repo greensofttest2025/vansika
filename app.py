@@ -8,6 +8,9 @@ import numpy as np
 import cv2
 import os
 from PIL import Image
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
 
 # -------------------------------
 # CONFIG
@@ -47,6 +50,9 @@ def load_model():
     return tf.keras.models.load_model(model_path)
 
 model = load_model()
+if model is None:
+    st.stop()
+
 
 # -------------------------------
 # IMAGE UPLOAD
