@@ -1,27 +1,33 @@
-# ===============================
-# MCC Diagnostic App (Streamlit)
-# ===============================
+# ============================================================
+# MCC Diagnostic App – Academic Research Prototype
+# ============================================================
 
+# -------------------------------
+# ENVIRONMENT SAFETY (MUST BE FIRST)
+# -------------------------------
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
+# -------------------------------
+# IMPORTS
+# -------------------------------
 import streamlit as st
 import tensorflow as tf
 import numpy as np
-from PIL import Image
 import cv2
-from fpdf import FPDF
+from PIL import Image
 from datetime import datetime
+from fpdf import FPDF
 
 # -------------------------------
-# CONFIG
+# CONFIGURATION
 # -------------------------------
 IMG_SIZE = 224
-THRESHOLD = 0.35   # ROC-optimized MCC-safe threshold
+THRESHOLD = 0.35  # MCC-safe ROC threshold
 
-# Model semantics (LOCKED)
-# Sigmoid output = P(non_mcc)
+# Model semantics (LOCKED from training)
+# Sigmoid output = P(Non-MCC)
 IDX_TO_CLASS = {0: "MCC", 1: "Non-MCC"}
 
 # -------------------------------
@@ -40,43 +46,33 @@ st.title("🩺 MCC Diagnostic App")
 st.subheader("AI-Assisted Merkel Cell Carcinoma Risk Assessment")
 
 st.markdown("""
-⚠️ **Academic Research Prototype – NOT for Clinical Use**  
-This system is intended strictly for **research and educational purposes**.  
-Final diagnosis must always be performed by a certified dermatologist.
+⚠️ **Academic Research Prototype – NOT a Medical Device**
+
+This system is developed strictly for **research and educational purposes**.  
+It is **NOT approved for clinical diagnosis**.  
+Final decisions must always be made by certified dermatologists.
 """)
 
 st.divider()
 
 # -------------------------------
-# ABOUT MCC
+# ABOUT MCC & MODEL
 # -------------------------------
-st.header("📘 About Merkel Cell Carcinoma (MCC)")
-st.markdown("""
-Merkel Cell Carcinoma (MCC) is a **rare but aggressive neuroendocrine skin cancer**.
-It typically presents as a **rapidly growing, painless lesion** on sun-exposed skin.
+with st.expander("📘 About MCC & the AI Model", expanded=False):
+    st.markdown("""
+**Merkel Cell Carcinoma (MCC)** is a rare but highly aggressive neuroendocrine skin cancer.  
+Early detection is critical due to its high metastatic potential.
 
-Early detection is critical due to:
-- High metastatic potential
-- Rapid progression
-- Poor prognosis if untreated
-""")
+### 🔬 Model Overview
+- Backbone: **Vision Transformer / CNN Hybrid**
+- Input: Dermoscopic skin lesion images
+- Output: **Binary classification**
+  - `MCC`
+  - `Non-MCC`
+- Threshold selected via **ROC curve optimization**
+- Deployment mode: **Inference-only (TensorFlow SavedModel)**
 
-st.divider()
-
-# -------------------------------
-# ABOUT AI / ViT
-# -------------------------------
-st.header("🧠 AI & Vision Transformer (ViT) Perspective")
-st.markdown("""
-This system uses **deep learning–based visual representation learning**.
-
-### Key Concepts:
-- **CNN backbone** extracts local texture patterns
-- **Transformer-inspired attention** models global lesion structure
-- **Sigmoid probability output** estimates malignancy risk
-- **ROC-calibrated threshold** prioritizes cancer safety
-
-> The model learns *where to look* and *what patterns matter most* in skin lesions.
+This application uses **Keras 3–safe inference** via `TFSMLayer`.
 """)
 
 st.divider()
@@ -88,10 +84,9 @@ st.divider()
 def load_model():
     model_dir = "mcc_model_savedmodel"
     if not os.path.exists(model_dir):
-        st.error("❌ Model folder not found.")
+        st.error("❌ Model folder not found in repository.")
         return None
 
-    # Keras 3 inference-safe loader
     return tf.keras.layers.TFSMLayer(
         model_dir,
         call_endpoint="serving_default"
@@ -113,17 +108,17 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Uploaded Image", use_column_width=True)
+    st.image(image, caption="Uploaded Image", width="stretch")
 
     # -------------------------------
-    # PREPROCESS
+    # PREPROCESSING
     # -------------------------------
     img_resized = image.resize((IMG_SIZE, IMG_SIZE))
     img_array = np.array(img_resized) / 255.0
     img_array = np.expand_dims(img_array, axis=0).astype(np.float32)
 
     # -------------------------------
-    # BASIC VISUAL FEATURES (UI ONLY)
+    # BASIC VISUAL FEATURE EXTRACTION
     # -------------------------------
     gray = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
     _, thresh = cv2.threshold(
@@ -145,26 +140,24 @@ if uploaded_file:
     st.divider()
 
     # -------------------------------
-    # DISPLAY FEATURES
+    # FEATURE DISPLAY
     # -------------------------------
-    st.header("🧬 Extracted Visual Indicators")
-    c1, c2, c3 = st.columns(3)
+    st.subheader("🧬 Extracted Visual Indicators (Approximate)")
 
+    c1, c2, c3 = st.columns(3)
     c1.metric("Lesion Area", f"{lesion_area:.0f} px²")
     c2.metric("Perimeter", f"{perimeter:.2f} px")
     c3.metric("Circularity", f"{circularity:.3f}")
 
-    st.caption("⚠️ Feature values are approximate and for visualization only.")
+    st.caption("⚠️ These features are for **visual explanation only**.")
 
     st.divider()
 
     # -------------------------------
-    # PREDICTION
+    # MODEL INFERENCE
     # -------------------------------
-    with st.spinner("Analyzing lesion..."):
+    with st.spinner("Analyzing lesion using AI model..."):
         output = model(img_array)
-
-        # SavedModel returns dict
         prob_non_mcc = float(list(output.values())[0][0][0])
 
     prob_mcc = 1.0 - prob_non_mcc
@@ -174,13 +167,13 @@ if uploaded_file:
     # -------------------------------
     if prob_mcc >= 0.65:
         risk = "HIGH"
-        icon = "🚨"
+        badge = "🚨"
     elif prob_mcc >= THRESHOLD:
         risk = "MEDIUM"
-        icon = "⚠️"
+        badge = "⚠️"
     else:
         risk = "LOW"
-        icon = "✅"
+        badge = "✅"
 
     st.header("📊 Prediction Results")
 
@@ -188,21 +181,30 @@ if uploaded_file:
     r1.metric("MCC Probability", f"{prob_mcc * 100:.2f}%")
     r2.metric("Benign Probability", f"{prob_non_mcc * 100:.2f}%")
 
-    st.markdown(f"### {icon} **Risk Level: {risk}**")
+    st.markdown(f"### {badge} **Risk Level: {risk}**")
 
     if risk == "HIGH":
         st.error("Immediate dermatological evaluation is strongly advised.")
     elif risk == "MEDIUM":
         st.warning("Clinical review is recommended.")
     else:
-        st.success("Routine monitoring suggested.")
+        st.success("Routine monitoring is suggested.")
 
     st.divider()
 
     # -------------------------------
-    # PDF REPORT
+    # PDF REPORT (UNICODE SAFE)
     # -------------------------------
-    st.header("📄 Generate Diagnostic Report")
+    st.header("📄 Download Diagnostic Report")
+
+    def safe(text: str) -> str:
+        return (
+            text.replace("–", "-")
+                .replace("—", "-")
+                .replace("’", "'")
+                .replace("“", '"')
+                .replace("”", '"')
+        )
 
     def generate_pdf():
         pdf = FPDF()
@@ -210,65 +212,82 @@ if uploaded_file:
         pdf.add_page()
 
         pdf.set_font("Arial", "B", 16)
-        pdf.cell(0, 10, "MCC Diagnostic Report", ln=True, align="C")
+        pdf.cell(0, 10, safe("MCC Diagnostic Report"), ln=True, align="C")
 
         pdf.set_font("Arial", "", 11)
-        pdf.cell(0, 8, "AI-Assisted Skin Lesion Risk Assessment", ln=True, align="C")
-        pdf.ln(4)
+        pdf.cell(
+            0, 8,
+            safe("AI-Assisted Skin Lesion Risk Assessment"),
+            ln=True,
+            align="C"
+        )
 
+        pdf.ln(5)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-        pdf.ln(6)
+        pdf.ln(8)
 
         pdf.set_font("Arial", "", 10)
-        pdf.cell(0, 8, f"Date: {datetime.now().strftime('%d %b %Y | %H:%M')}", ln=True)
-        pdf.cell(0, 8, "System: Academic Research Prototype", ln=True)
-        pdf.ln(4)
+        pdf.cell(
+            0, 8,
+            safe(f"Date: {datetime.now().strftime('%d %b %Y | %H:%M')}"),
+            ln=True
+        )
+        pdf.cell(
+            0, 8,
+            safe("System: MSc Academic Research Prototype"),
+            ln=True
+        )
 
+        pdf.ln(4)
         pdf.set_font("Arial", "B", 10)
-        pdf.cell(0, 8, "DISCLAIMER", ln=True)
+        pdf.cell(0, 8, safe("DISCLAIMER"), ln=True)
 
         pdf.set_font("Arial", "", 9)
         pdf.multi_cell(
             0, 6,
-            "This AI-generated report is NOT a clinical diagnosis. "
-            "It must not be used for medical decision-making."
+            safe(
+                "This AI-generated report is NOT a medical diagnosis. "
+                "It must not be used for clinical decision-making."
+            )
         )
-        pdf.ln(4)
 
+        pdf.ln(4)
         pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 10, "Prediction Summary", ln=True)
+        pdf.cell(0, 10, safe("Prediction Summary"), ln=True)
 
         pdf.set_font("Arial", "", 10)
-        pdf.cell(90, 8, "MCC Probability:", 0, 0)
+        pdf.cell(90, 8, safe("MCC Probability:"), 0, 0)
         pdf.cell(0, 8, f"{prob_mcc * 100:.2f} %", ln=True)
 
-        pdf.cell(90, 8, "Benign Probability:", 0, 0)
+        pdf.cell(90, 8, safe("Benign Probability:"), 0, 0)
         pdf.cell(0, 8, f"{prob_non_mcc * 100:.2f} %", ln=True)
 
-        pdf.cell(90, 8, "Risk Level:", 0, 0)
+        pdf.cell(90, 8, safe("Risk Level:"), 0, 0)
         pdf.set_font("Arial", "B", 10)
-        pdf.cell(0, 8, risk, ln=True)
+        pdf.cell(0, 8, safe(risk), ln=True)
 
         pdf.ln(4)
         pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 10, "Extracted Visual Indicators", ln=True)
+        pdf.cell(0, 10, safe("Visual Indicators"), ln=True)
 
         pdf.set_font("Arial", "", 10)
-        pdf.cell(90, 8, "Lesion Area:", 0, 0)
+        pdf.cell(90, 8, safe("Lesion Area:"), 0, 0)
         pdf.cell(0, 8, f"{lesion_area:.0f}", ln=True)
 
-        pdf.cell(90, 8, "Perimeter:", 0, 0)
+        pdf.cell(90, 8, safe("Perimeter:"), 0, 0)
         pdf.cell(0, 8, f"{perimeter:.2f}", ln=True)
 
-        pdf.cell(90, 8, "Circularity:", 0, 0)
+        pdf.cell(90, 8, safe("Circularity:"), 0, 0)
         pdf.cell(0, 8, f"{circularity:.3f}", ln=True)
 
-        pdf.ln(5)
+        pdf.ln(8)
         pdf.set_font("Arial", "I", 8)
         pdf.multi_cell(
             0, 5,
-            "Generated by MCC Diagnostic System\n"
-            "MSc Research Prototype – AI-Assisted Skin Cancer Analysis"
+            safe(
+                "Generated by MCC Diagnostic System\n"
+                "MSc Research Prototype - AI Assisted Skin Cancer Analysis"
+            )
         )
 
         return pdf.output(dest="S").encode("latin-1")
@@ -276,7 +295,7 @@ if uploaded_file:
     pdf_bytes = generate_pdf()
 
     st.download_button(
-        "📥 Download Diagnostic Report (PDF)",
+        label="📥 Download Diagnostic Report (PDF)",
         data=pdf_bytes,
         file_name="MCC_Diagnostic_Report.pdf",
         mime="application/pdf"
