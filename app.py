@@ -245,4 +245,4 @@ if uploaded_file:
 # FOOTER
 # -------------------------------
 st.markdown("---")
-st.caption("© MSc Research Prototype · AI-Assisted MCC Risk Assessment")
+st.caption("© Engineering Research Prototype · AI-Assisted MCC Risk Assessment")
