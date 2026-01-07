@@ -26,7 +26,6 @@ from fpdf import FPDF
 IMG_SIZE = 224
 THRESHOLD = 0.35  # MCC-safe ROC threshold
 
-# Model semantics (LOCKED from training)
 # Sigmoid output = P(Non-MCC)
 IDX_TO_CLASS = {0: "MCC", 1: "Non-MCC"}
 
@@ -64,15 +63,11 @@ with st.expander("📘 About MCC & the AI Model", expanded=False):
 Early detection is critical due to its high metastatic potential.
 
 ### 🔬 Model Overview
-- Backbone: **Vision Transformer / CNN Hybrid**
+- Backbone: Vision Transformer / CNN Hybrid
 - Input: Dermoscopic skin lesion images
-- Output: **Binary classification**
-  - `MCC`
-  - `Non-MCC`
-- Threshold selected via **ROC curve optimization**
-- Deployment mode: **Inference-only (TensorFlow SavedModel)**
-
-This application uses **Keras 3–safe inference** via `TFSMLayer`.
+- Output: Binary classification (MCC / Non-MCC)
+- Threshold selected via ROC curve optimization
+- Inference-only TensorFlow SavedModel
 """)
 
 st.divider()
@@ -118,38 +113,19 @@ if uploaded_file:
     img_array = np.expand_dims(img_array, axis=0).astype(np.float32)
 
     # -------------------------------
-    # BASIC VISUAL FEATURE EXTRACTION
+    # FEATURE EXTRACTION
     # -------------------------------
     gray = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
-    _, thresh = cv2.threshold(
-        gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-    )
-    contours, _ = cv2.findContours(
-        thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-    )
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     lesion_area = perimeter = circularity = 0.0
-
     if contours:
         c = max(contours, key=cv2.contourArea)
         lesion_area = cv2.contourArea(c)
         perimeter = cv2.arcLength(c, True)
         if perimeter > 0:
             circularity = (4 * np.pi * lesion_area) / (perimeter ** 2)
-
-    st.divider()
-
-    # -------------------------------
-    # FEATURE DISPLAY
-    # -------------------------------
-    st.subheader("🧬 Extracted Visual Indicators (Approximate)")
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Lesion Area", f"{lesion_area:.0f} px²")
-    c2.metric("Perimeter", f"{perimeter:.2f} px")
-    c3.metric("Circularity", f"{circularity:.3f}")
-
-    st.caption("⚠️ These features are for **visual explanation only**.")
 
     st.divider()
 
@@ -176,82 +152,63 @@ if uploaded_file:
         badge = "✅"
 
     st.header("📊 Prediction Results")
-
-    r1, r2 = st.columns(2)
-    r1.metric("MCC Probability", f"{prob_mcc * 100:.2f}%")
-    r2.metric("Benign Probability", f"{prob_non_mcc * 100:.2f}%")
-
+    c1, c2 = st.columns(2)
+    c1.metric("MCC Probability", f"{prob_mcc * 100:.2f}%")
+    c2.metric("Benign Probability", f"{prob_non_mcc * 100:.2f}%")
     st.markdown(f"### {badge} **Risk Level: {risk}**")
-
-    if risk == "HIGH":
-        st.error("Immediate dermatological evaluation is strongly advised.")
-    elif risk == "MEDIUM":
-        st.warning("Clinical review is recommended.")
-    else:
-        st.success("Routine monitoring is suggested.")
 
     st.divider()
 
     # -------------------------------
-    # PDF REPORT (UNICODE SAFE)
+    # PDF REPORT (ONLY MCC SECTION ADDED)
     # -------------------------------
     st.header("📄 Download Diagnostic Report")
 
-    def safe(text: str) -> str:
+    def safe(t):
         return (
-            text.replace("–", "-")
-                .replace("—", "-")
-                .replace("’", "'")
-                .replace("“", '"')
-                .replace("”", '"')
+            t.replace("–", "-")
+             .replace("—", "-")
+             .replace("’", "'")
+             .replace("“", '"')
+             .replace("”", '"')
         )
 
     def generate_pdf():
         pdf = FPDF()
-        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.set_auto_page_break(True, 15)
         pdf.add_page()
 
         pdf.set_font("Arial", "B", 16)
         pdf.cell(0, 10, safe("MCC Diagnostic Report"), ln=True, align="C")
 
         pdf.set_font("Arial", "", 11)
-        pdf.cell(
-            0, 8,
-            safe("AI-Assisted Skin Lesion Risk Assessment"),
-            ln=True,
-            align="C"
-        )
+        pdf.cell(0, 8, safe("AI-Assisted Skin Lesion Risk Assessment"), ln=True, align="C")
 
-        pdf.ln(5)
+        pdf.ln(6)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(8)
 
         pdf.set_font("Arial", "", 10)
-        pdf.cell(
-            0, 8,
-            safe(f"Date: {datetime.now().strftime('%d %b %Y | %H:%M')}"),
-            ln=True
-        )
-        pdf.cell(
-            0, 8,
-            safe("System: MSc Academic Research Prototype"),
-            ln=True
-        )
+        pdf.cell(0, 8, safe(f"Date: {datetime.now().strftime('%d %b %Y | %H:%M')}"), ln=True)
 
+        # ---------- MCC FULL FORM (3 LINES) ----------
         pdf.ln(4)
-        pdf.set_font("Arial", "B", 10)
-        pdf.cell(0, 8, safe("DISCLAIMER"), ln=True)
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 10, safe("Merkel Cell Carcinoma (MCC)"), ln=True)
 
-        pdf.set_font("Arial", "", 9)
+        pdf.set_font("Arial", "", 10)
         pdf.multi_cell(
-            0, 6,
+            0, 7,
             safe(
-                "This AI-generated report is NOT a medical diagnosis. "
-                "It must not be used for clinical decision-making."
+                "Merkel Cell Carcinoma (MCC) is a rare and aggressive neuroendocrine cancer of the skin. "
+                "It typically presents as a painless, rapidly growing lesion on sun-exposed areas. "
+                "Early diagnosis is essential due to its high risk of metastasis and recurrence."
             )
         )
 
         pdf.ln(4)
+
+        # ---------- PREDICTION SUMMARY ----------
         pdf.set_font("Arial", "B", 12)
         pdf.cell(0, 10, safe("Prediction Summary"), ln=True)
 
@@ -266,37 +223,20 @@ if uploaded_file:
         pdf.set_font("Arial", "B", 10)
         pdf.cell(0, 8, safe(risk), ln=True)
 
-        pdf.ln(4)
-        pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 10, safe("Visual Indicators"), ln=True)
-
-        pdf.set_font("Arial", "", 10)
-        pdf.cell(90, 8, safe("Lesion Area:"), 0, 0)
-        pdf.cell(0, 8, f"{lesion_area:.0f}", ln=True)
-
-        pdf.cell(90, 8, safe("Perimeter:"), 0, 0)
-        pdf.cell(0, 8, f"{perimeter:.2f}", ln=True)
-
-        pdf.cell(90, 8, safe("Circularity:"), 0, 0)
-        pdf.cell(0, 8, f"{circularity:.3f}", ln=True)
-
-        pdf.ln(8)
+        pdf.ln(6)
         pdf.set_font("Arial", "I", 8)
         pdf.multi_cell(
             0, 5,
             safe(
-                "Generated by MCC Diagnostic System\n"
-                "MSc Research Prototype - AI Assisted Skin Cancer Analysis"
+                "This report is generated by an academic AI system and does NOT constitute a medical diagnosis."
             )
         )
 
         return pdf.output(dest="S").encode("latin-1")
 
-    pdf_bytes = generate_pdf()
-
     st.download_button(
-        label="📥 Download Diagnostic Report (PDF)",
-        data=pdf_bytes,
+        "📥 Download Diagnostic Report (PDF)",
+        data=generate_pdf(),
         file_name="MCC_Diagnostic_Report.pdf",
         mime="application/pdf"
     )
